@@ -154,6 +154,7 @@ const proxyOptions = {
   followRedirects: true,
   timeout: 30000, // 30 segundos
   proxyTimeout: 30000,
+  ws: true, // Soporte para WebSockets
   
   // Modificar headers de la petición
   onProxyReq: (proxyReq, req, res) => {
@@ -161,53 +162,90 @@ const proxyOptions = {
     const clientIP = getRealIP(req);
     const accessDomain = getAccessDomain(req);
     
+    // Headers importantes para el proxy
+    proxyReq.setHeader('X-Real-IP', clientIP);
+    proxyReq.setHeader('X-Forwarded-For', clientIP);
+    proxyReq.setHeader('X-Forwarded-Proto', req.protocol || 'https');
+    proxyReq.setHeader('X-Forwarded-Host', req.get('host') || accessDomain);
+    
+    // Headers personalizados
     proxyReq.setHeader('user_ip', clientIP);
     proxyReq.setHeader('domain_ip', accessDomain);
-    proxyReq.setHeader('X-Proxy-By', 'ProxyRender-Liberia');
     
-    // Preservar el User-Agent original
-    if (req.get('User-Agent')) {
-      proxyReq.setHeader('User-Agent', req.get('User-Agent'));
-    }
+    // Preservar headers importantes del cliente
+    const headersToPreserve = ['user-agent', 'accept', 'accept-language', 'accept-encoding', 'cookie', 'authorization', 'referer', 'origin'];
+    headersToPreserve.forEach(header => {
+      const value = req.get(header);
+      if (value) {
+        proxyReq.setHeader(header, value);
+      }
+    });
     
-    // Remover headers que podrían causar conflictos
-    proxyReq.removeHeader('host');
-    
-    // Log en desarrollo
-    if (NODE_ENV === 'development') {
-      console.log(`[PROXY] ${req.method} ${req.url} -> ${TARGET_URL}${req.url}`);
-      console.log(`[PROXY] Added headers: user_ip=${clientIP}, domain_ip=${accessDomain}`);
+    // Log para debugging
+    console.log(`[PROXY REQUEST] ${req.method} ${req.url}`);
+    console.log(`[PROXY TARGET] ${TARGET_URL}${req.url}`);
+    console.log(`[CLIENT INFO] IP: ${clientIP}, Domain: ${accessDomain}`);
+    if (NODE_ENV === 'development' || true) { // Temporalmente activar logs
+      console.log('[REQUEST HEADERS]', req.headers);
     }
   },
   
   // Modificar headers de la respuesta
   onProxyRes: (proxyRes, req, res) => {
+    // Permitir CORS completo
+    proxyRes.headers['access-control-allow-origin'] = '*';
+    proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
+    proxyRes.headers['access-control-allow-headers'] = '*';
+    proxyRes.headers['access-control-allow-credentials'] = 'true';
+    
     // Remover headers que podrían revelar el backend
     proxyRes.headers['x-powered-by'] = 'ProxyRender-Liberia';
     delete proxyRes.headers['server'];
     delete proxyRes.headers['x-aspnet-version'];
     delete proxyRes.headers['x-aspnetmvc-version'];
     
-    // Log en desarrollo
-    if (NODE_ENV === 'development') {
-      console.log(`[PROXY] Response ${proxyRes.statusCode} for ${req.method} ${req.url}`);
+    // Log de respuesta
+    console.log(`[PROXY RESPONSE] ${proxyRes.statusCode} for ${req.method} ${req.url}`);
+    if (NODE_ENV === 'development' || true) { // Temporalmente activar logs
+      console.log('[RESPONSE HEADERS]', proxyRes.headers);
     }
   },
   
   // Manejo de errores
   onError: (err, req, res) => {
-    console.error(`[PROXY ERROR] ${err.message}`, {
+    console.error(`[PROXY ERROR] ${err.message}`);
+    console.error(`[PROXY ERROR DETAILS]`, {
       url: req.url,
       method: req.method,
+      target: TARGET_URL,
+      error_code: err.code,
+      error_stack: err.stack,
       timestamp: new Date().toISOString(),
       client_ip: getRealIP(req)
     });
     
-    // Respuesta de error que no revele información del backend
+    // Determinar tipo de error y respuesta apropiada
+    let statusCode = 502;
+    let errorMessage = 'Error en el proxy';
+    
+    if (err.code === 'ECONNREFUSED') {
+      errorMessage = 'No se pudo conectar con el servidor de destino';
+      statusCode = 503;
+    } else if (err.code === 'ETIMEDOUT') {
+      errorMessage = 'Tiempo de espera agotado';
+      statusCode = 504;
+    } else if (err.code === 'ENOTFOUND') {
+      errorMessage = 'Servidor de destino no encontrado';
+      statusCode = 502;
+    }
+    
     if (!res.headersSent) {
-      res.status(502).json({
-        error: 'Servicio temporalmente no disponible',
-        code: 502,
+      res.status(statusCode).json({
+        error: errorMessage,
+        message: NODE_ENV === 'development' ? err.message : 'Error al procesar la solicitud',
+        code: err.code,
+        path: req.url,
+        target: NODE_ENV === 'development' ? TARGET_URL : undefined,
         timestamp: new Date().toISOString()
       });
     }
@@ -222,12 +260,24 @@ const proxyOptions = {
 // Crear el proxy middleware
 const proxy = createProxyMiddleware(proxyOptions);
 
+// Manejo especial para OPTIONS (CORS preflight)
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Max-Age', '86400');
+  res.sendStatus(200);
+});
+
 // Aplicar el proxy a todas las rutas excepto las de control
 app.use((req, res, next) => {
   // Excluir rutas de control del proxy
   if (req.path === '/health' || req.path === '/keep-alive' || req.path === '/proxy-status') {
     return next();
   }
+  
+  // Log para debugging
+  console.log(`[ROUTING] Proxying ${req.method} ${req.path} to ${TARGET_URL}`);
   
   // Aplicar proxy a todas las demás rutas
   return proxy(req, res, next);

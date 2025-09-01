@@ -50,37 +50,16 @@ services:
     #   targetMemoryPercent: 80
     #   targetCPUPercent: 80
     
-    # Configuración de recursos
-    disk:
-      name: proxyrender-liberia-disk
-      mountPath: /opt/render/project/data
-      sizeGB: 1 # Mínimo para plan gratuito
-    
     # Configuración de red
     # customDomains: # Descomentar y configurar si tienes dominio personalizado
     #   - domain: tu-dominio.com
     #     certificateId: tu-certificado-id
     
-    # Headers de respuesta personalizados
-    headers:
-      - path: /*
-        name: X-Powered-By
-        value: ProxyRender-Liberia
-      - path: /*
-        name: X-Proxy-Version
-        value: "1.0.0"
+    # Nota: disk y headers no están disponibles en el plan gratuito
+    # Los headers personalizados se configuran en el código del servidor
     
-    # Configuración de logs
-    logLevel: info
-    
-    # Configuración de health checks
-    healthCheck:
-      path: /health
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      successThreshold: 1
-      failureThreshold: 3
+    # Configuración de health checks (integrada en Render)
+    # Los logs se manejan automáticamente por Render
 
 # Configuración de base de datos (opcional, si necesitas persistencia)
 # databases:
