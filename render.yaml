@@ -1,0 +1,113 @@
+# render.yaml - Configuración Blueprint para Render.com
+services:
+  # Servicio Web Principal - Proxy Reverso
+  - type: web
+    name: proxyrender-liberia
+    env: node
+    region: oregon # Cambiar según tu región preferida (oregon, frankfurt, singapore)
+    plan: free # free, starter, standard, pro
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    
+    # Variables de entorno
+    envVars:
+      # URL del backend que se va a proxificar
+      - key: TARGET_URL
+        value: https://mi-app-original.com # ⚠️ CAMBIAR POR TU URL REAL
+      
+      # Puerto del servicio (Render lo asigna automáticamente)
+      - key: PORT
+        fromService:
+          type: web
+          name: proxyrender-liberia
+          property: port
+      
+      # Entorno de ejecución
+      - key: NODE_ENV
+        value: production
+      
+      # Rate Limiting - Ventana de tiempo en milisegundos (15 minutos = 900000ms)
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 900000
+      
+      # Rate Limiting - Máximo número de peticiones por ventana
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: 100
+      
+      # URL para keep-alive (prevenir sleep en plan gratuito)
+      # Se auto-configurará con la URL del servicio desplegado
+      - key: KEEP_ALIVE_URL
+        fromService:
+          type: web
+          name: proxyrender-liberia
+          property: host
+    
+    # Configuración de autoscaling (solo disponible en planes pagos)
+    # scaling:
+    #   minInstances: 1
+    #   maxInstances: 3
+    #   targetMemoryPercent: 80
+    #   targetCPUPercent: 80
+    
+    # Configuración de recursos
+    disk:
+      name: proxyrender-liberia-disk
+      mountPath: /opt/render/project/data
+      sizeGB: 1 # Mínimo para plan gratuito
+    
+    # Configuración de red
+    # customDomains: # Descomentar y configurar si tienes dominio personalizado
+    #   - domain: tu-dominio.com
+    #     certificateId: tu-certificado-id
+    
+    # Headers de respuesta personalizados
+    headers:
+      - path: /*
+        name: X-Powered-By
+        value: ProxyRender-Liberia
+      - path: /*
+        name: X-Proxy-Version
+        value: "1.0.0"
+    
+    # Configuración de logs
+    logLevel: info
+    
+    # Configuración de health checks
+    healthCheck:
+      path: /health
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+# Configuración de base de datos (opcional, si necesitas persistencia)
+# databases:
+#   - name: proxyrender-db
+#     databaseName: proxy_logs
+#     user: proxy_user
+#     plan: free # free, starter, standard, pro
+#     region: oregon
+#     postgresMajorVersion: 15
+
+# Configuración de Redis (opcional, para caché o rate limiting distribuido)
+# - type: redis
+#   name: proxyrender-redis
+#   plan: free # free, starter, standard, pro
+#   region: oregon
+#   maxmemoryPolicy: allkeys-lru
+
+# Configuración adicional para monitoreo (solo planes pagos)
+# monitoring:
+#   alerts:
+#     - name: high-error-rate
+#       condition: error_rate > 5%
+#       duration: 5m
+#       notification:
+#         email: tu-email@ejemplo.com
+#     - name: high-response-time
+#       condition: avg_response_time > 2s
+#       duration: 5m
+#       notification:
+#         email: tu-email@ejemplo.com
