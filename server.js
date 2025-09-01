@@ -105,9 +105,6 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: NODE_ENV,
-    target: TARGET_URL,
     version: '1.0.0'
   });
 });
@@ -126,12 +123,8 @@ app.get('/proxy-status', (req, res) => {
   res.status(200).json({
     proxy: 'ProxyRender Liberia v1.0',
     status: 'active',
-    target: TARGET_URL,
     timestamp: new Date().toISOString(),
-    client_ip: getRealIP(req),
-    access_domain: getAccessDomain(req),
-    uptime: process.uptime(),
-    environment: NODE_ENV
+    uptime: process.uptime()
   });
 });
 
@@ -139,9 +132,6 @@ app.get('/proxy-status', (req, res) => {
 if (NODE_ENV === 'development') {
   app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-    console.log(`Client IP: ${getRealIP(req)}`);
-    console.log(`Access Domain: ${getAccessDomain(req)}`);
-    console.log('Headers:', req.headers);
     next();
   });
 }
@@ -181,12 +171,9 @@ const proxyOptions = {
       }
     });
     
-    // Log para debugging
-    console.log(`[PROXY REQUEST] ${req.method} ${req.url}`);
-    console.log(`[PROXY TARGET] ${TARGET_URL}${req.url}`);
-    console.log(`[CLIENT INFO] IP: ${clientIP}, Domain: ${accessDomain}`);
-    if (NODE_ENV === 'development' || true) { // Temporalmente activar logs
-      console.log('[REQUEST HEADERS]', req.headers);
+    // Log mínimo sin información sensible
+    if (NODE_ENV === 'development') {
+      console.log(`[PROXY REQUEST] ${req.method} ${req.url}`);
     }
   },
   
@@ -204,25 +191,15 @@ const proxyOptions = {
     delete proxyRes.headers['x-aspnet-version'];
     delete proxyRes.headers['x-aspnetmvc-version'];
     
-    // Log de respuesta
-    console.log(`[PROXY RESPONSE] ${proxyRes.statusCode} for ${req.method} ${req.url}`);
-    if (NODE_ENV === 'development' || true) { // Temporalmente activar logs
-      console.log('[RESPONSE HEADERS]', proxyRes.headers);
+    // Log mínimo de respuesta
+    if (NODE_ENV === 'development') {
+      console.log(`[PROXY RESPONSE] ${proxyRes.statusCode} for ${req.method} ${req.url}`);
     }
   },
   
   // Manejo de errores
   onError: (err, req, res) => {
-    console.error(`[PROXY ERROR] ${err.message}`);
-    console.error(`[PROXY ERROR DETAILS]`, {
-      url: req.url,
-      method: req.method,
-      target: TARGET_URL,
-      error_code: err.code,
-      error_stack: err.stack,
-      timestamp: new Date().toISOString(),
-      client_ip: getRealIP(req)
-    });
+    console.error(`[PROXY ERROR] ${err.code || 'UNKNOWN'} for ${req.method} ${req.url}`);
     
     // Determinar tipo de error y respuesta apropiada
     let statusCode = 502;
@@ -242,10 +219,6 @@ const proxyOptions = {
     if (!res.headersSent) {
       res.status(statusCode).json({
         error: errorMessage,
-        message: NODE_ENV === 'development' ? err.message : 'Error al procesar la solicitud',
-        code: err.code,
-        path: req.url,
-        target: NODE_ENV === 'development' ? TARGET_URL : undefined,
         timestamp: new Date().toISOString()
       });
     }
@@ -276,8 +249,10 @@ app.use((req, res, next) => {
     return next();
   }
   
-  // Log para debugging
-  console.log(`[ROUTING] Proxying ${req.method} ${req.path} to ${TARGET_URL}`);
+  // Log mínimo sin revelar target
+  if (NODE_ENV === 'development') {
+    console.log(`[ROUTING] Proxying ${req.method} ${req.path}`);
+  }
   
   // Aplicar proxy a todas las demás rutas
   return proxy(req, res, next);
